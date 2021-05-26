@@ -1,11 +1,18 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2010-2019, 2600Hz
+%%% @copyright (C) 2010-2020, 2600Hz
 %%% @doc
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(kzd_blacklists).
 
--export([new/0]).
+-export([new/0
+        ,type/0
+        ,schema/0
+        ]).
 -export([flags/1, flags/2, set_flags/2]).
 -export([name/1, name/2, set_name/2]).
 -export([numbers/1, numbers/2, set_numbers/2]).
@@ -18,10 +25,17 @@
 -export_type([doc/0]).
 
 -define(SCHEMA, <<"blacklists">>).
+-define(PVT_TYPE, <<"blacklist">>).
 
 -spec new() -> doc().
 new() ->
     kz_json_schema:default_object(?SCHEMA).
+
+-spec type() -> kz_term:ne_binary().
+type() -> ?PVT_TYPE.
+
+-spec schema() -> kz_term:ne_binary().
+schema() -> ?SCHEMA.
 
 -spec flags(doc()) -> kz_term:api_ne_binaries().
 flags(Doc) ->

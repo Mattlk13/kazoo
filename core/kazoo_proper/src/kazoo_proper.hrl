@@ -1,5 +1,6 @@
 -ifndef(KAZOO_PROPER_HRL).
 -include_lib("kazoo_stdlib/include/kz_types.hrl").
+-include_lib("kazoo_stdlib/include/kz_log.hrl").
 -include_lib("kazoo_stdlib/include/kz_databases.hrl").
 
 -define(APP_NAME, <<"kazoo_proper">>).
@@ -38,7 +39,7 @@
 -type response_code() :: 200..600.
 -type response_headers() :: kz_http:headers().
 
--type request_headers() :: [{kz_term:ne_binary(), string()}].
+-type request_headers() :: [{kz_term:ne_binary(), string() | non_neg_integer()}].
 
 -record(expectation, {response_codes = [] :: expected_codes()
                      ,response_headers = [] :: expected_headers()

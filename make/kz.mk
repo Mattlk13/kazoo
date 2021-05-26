@@ -1,10 +1,12 @@
 ## Kazoo Makefile targets
+## Targets are run from the application's root directory (not KAZOO root).
 
 .PHONY: compile compile-lean compile-test compile-test-direct compile-test-kz-deps \
 	clean clean-test \
 	json \
 	eunit proper test \
-	dialyze xref fixture_shell app_src depend splchk
+	dialyze xref fixture_shell app_src depend splchk \
+	code_checks apps_of_app
 
 ## Platform detection.
 ifeq ($(PLATFORM),)
@@ -55,8 +57,38 @@ TEST_EBINS += $(EBINS) $(ROOT)/deps/proper/ebin
 PA      = -pa ebin/ $(foreach EBIN,$(EBINS),-pa $(EBIN))
 TEST_PA = -pa ebin/ $(foreach EBIN,$(TEST_EBINS),-pa $(EBIN))
 
-DEPS_RULES = .deps.mk
+DEPS_RULES = .deps.rules
 TEST_DEPS = .test.deps
+DEPS_MK = $(CURDIR)/deps.mk
+DOT_ERLANG_MK = $(ROOT)/.erlang.mk
+
+.PHONY: deps
+ifneq (,$(wildcard $(DEPS_MK)))
+# Track app's dependencies, if any
+DEPS_HASH := $(shell md5sum $(DEPS_MK) | cut -d' ' -f1)
+DEPS_HASH_FILE := .deps.mk.$(DEPS_HASH)
+
+deps: $(DOT_ERLANG_MK) $(DEPS_MK) $(DEPS_HASH_FILE)
+
+$(DEPS_HASH_FILE):
+	@[[ -s $(DEPS_MK) ]] && DEPS_MK='$(DEPS_MK)' $(MAKE) -C $(ROOT)/deps/ all || true
+
+else
+deps: $(DEPS_MK)
+
+$(DEPS_MK):
+	@touch $(DEPS_MK)
+	@touch .deps.mk.$(shell md5sum $(DEPS_MK) | cut -d' ' -f1)
+
+endif
+
+$(DOT_ERLANG_MK):
+	@$(MAKE) -C $(ROOT) dot_erlang_mk
+
+clean-deps: clean-deps-hash
+
+clean-deps-hash:
+	$(if $(wildcard .deps.mk.*), rm .deps.mk.*)
 
 comma := ,
 empty :=
@@ -69,6 +101,7 @@ SOURCES     ?= $(wildcard src/*.erl) $(wildcard src/*/*.erl)
 MODULE_NAMES := $(sort $(foreach module,$(SOURCES),$(shell basename $(module) .erl)))
 MODULES := $(shell echo $(MODULE_NAMES) | sed 's/ /,/g')
 BEAMS := $(sort $(foreach module,$(SOURCES),ebin/$(shell basename $(module) .erl).beam))
+JSON := $(find . -name "*.json")
 
 TEST_SOURCES := $(SOURCES) $(wildcard test/*.erl)
 TEST_MODULE_NAMES := $(sort $(foreach module,$(TEST_SOURCES),$(shell basename $(module) .erl)))
@@ -79,7 +112,7 @@ include $(DEPS_RULES)
 endif
 
 ## COMPILE_MOAR can contain Makefile-specific targets (see CLEAN_MOAR, compile-test)
-compile: $(TEST_DEPS) $(COMPILE_MOAR) ebin/$(PROJECT).app json depend $(BEAMS)
+compile: deps $(TEST_DEPS) $(COMPILE_MOAR) ebin/$(PROJECT).app json depend $(BEAMS)
 
 compile-lean: ERLC_OPTS := $(filter-out +debug_info,$(ERLC_OPTS)) +deterministic
 compile-lean: compile
@@ -88,7 +121,7 @@ ebin/$(PROJECT).app:
 	@mkdir -p ebin/
 	ERL_LIBS=$(ELIBS) erlc -v $(ERLC_OPTS) $(PA) -o ebin/ $(SOURCES)
 	@sed "s/{modules,[[:space:]]*\[\]}/{modules, \[$(MODULES)\]}/" src/$(PROJECT).app.src \
-	| sed -e "s/{vsn,\([^}]*\)}/\{vsn,\"$(KZ_VERSION)\"}/g" > $@
+	| sed -e "s!{vsn,\([^}]*\)}!\{vsn,\"$(KZ_VERSION)\"}!" > $@
 
 ebin/%.beam: src/%.erl
 	ERL_LIBS=$(ELIBS) erlc -v $(ERLC_OPTS) $(PA) -o ebin/ $<
@@ -107,11 +140,11 @@ app_src:
 
 json: JSON = $(shell find . -name '*.json')
 json:
-	@$(ROOT)/scripts/format-json.sh $(JSON)
+	@$(ROOT)/scripts/format-json.py $(JSON)
 
 compile-test: $(TEST_DEPS) compile-test-kz-deps compile-test-direct json
 
-compile-test-direct: $(COMPILE_MOAR) test/$(PROJECT).app
+compile-test-direct: deps $(COMPILE_MOAR) test/$(PROJECT).app
 
 $(TEST_DEPS):
 	 ERL_LIBS=$(ROOT)/deps:$(ROOT)/core:$(ROOT)/applications $(ROOT)/scripts/calculate-dep-targets.escript $(ROOT) $(PROJECT) > $(TEST_DEPS)
@@ -219,6 +252,19 @@ fixture_shell: NODE_NAME ?= fixturedb
 fixture_shell:
 	@ERL_CRASH_DUMP="$(ERL_CRASH_DUMP)" ERL_LIBS="$(ERL_LIBS)" KAZOO_CONFIG=$(ROOT)/rel/config-test.ini \
 		erl -name '$(NODE_NAME)' -s reloader "$$@"
+
+code_checks:
+	@printf ":: Check for copyright year\n\n"
+	@$(ROOT)/scripts/bump-copyright-year.py $(SOURCES)
+	@printf "\n:: Check code\n\n"
+	@$(ROOT)/scripts/code_checks.bash $(SOURCES)
+	@printf "\n:: Check for raw JSON usage\n\n"
+	@ERL_LIBS=$(ROOT)/deps:$(ROOT)/core:$(ROOT)/applications $(ROOT)/scripts/no_raw_json.escript $(SOURCES)
+	@printf "\n:: Check for Erlang 21 new stacktrace syntax\n\n"
+	@$(ROOT)/scripts/check-stacktrace.py $(SOURCES)
+
+apps_of_app:
+	ERL_LIBS=$(ROOT)/deps:$(ROOT)/core:$(ROOT)/applications $(ROOT)/scripts/apps_of_app.escript -a $(ROOT)/applications/$(PROJECT)/src/$(PROJECT).app.src
 
 include $(ROOT)/make/splchk.mk
 include $(ROOT)/make/fmt.mk

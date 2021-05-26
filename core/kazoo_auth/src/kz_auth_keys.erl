@@ -1,13 +1,17 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2012-2019, 2600Hz
+%%% @copyright (C) 2012-2020, 2600Hz
 %%% @doc
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(kz_auth_keys).
 
 -export([get_public_key_from_cert/1]).
 -export([get_public_key_from_private_key/1]).
--export([gen_private_key/0]).
+-export([gen_private_key/0, gen_private_key/1]).
 -export([get_public_key/2]).
 -export([get_private_key_from_file/1]).
 -export([from_pem/1, to_pem/1]).
@@ -125,7 +129,7 @@ from_token_fold(Token, [Fun | Routines]) ->
     catch
         ?STACKTRACE(_E, _R, ST)
         lager:debug("error running public key routine ~p : ~p , ~p", [Fun, _E, _R]),
-        kz_util:log_stacktrace(ST),
+        kz_log:log_stacktrace(ST),
         from_token_fold(Token, Routines)
         end.
 
@@ -369,11 +373,15 @@ save_private_key(JObj, Key) ->
 
 -spec gen_private_key() -> {'ok', public_key:rsa_private_key()}.
 gen_private_key() ->
-    Key = public_key:generate_key({'rsa', ?RSA_KEY_SIZE, ?RSA_KEY_SIZE + 1}),
+    gen_private_key(?RSA_KEY_SIZE).
+
+-spec gen_private_key(integer()) -> {'ok', public_key:rsa_private_key()}.
+gen_private_key(Size) ->
+    Key = public_key:generate_key({'rsa', Size, Size + 1}),
     {'ok', Key}.
 
 %% @equiv reset_private_key(kz_auth_apps:get_auth_app(<<"kazoo">>))
--spec reset_kazoo_private_key() -> {'ok', kz_term:ne_binary()} | {'error', any()}.
+-spec reset_kazoo_private_key() -> {'ok', kz_term:ne_binary()} | kz_datamgr:data_error().
 reset_kazoo_private_key() ->
     lager:warning("trying to reset kazoo private key"),
     reset_private_key(kz_auth_apps:get_auth_app(<<"kazoo">>)).
@@ -384,12 +392,12 @@ reset_kazoo_private_key() ->
 %% and put it in cache.
 %% @end
 %%------------------------------------------------------------------------------
--spec reset_private_key(map() | kz_term:ne_binary()) -> {'ok', kz_term:ne_binary()} | {'error', any()}.
+-spec reset_private_key(map() | kz_term:ne_binary()) -> {'ok', kz_json:object()} | kz_datamgr:data_error().
 reset_private_key(#{pvt_server_key := KeyId}) ->
     reset_private_key(KeyId);
 reset_private_key(#{}) ->
     {'error', 'invalid_identity_provider'};
-reset_private_key(?NE_BINARY=KeyId) ->
+reset_private_key(<<KeyId/binary>>) ->
     lager:warning("deleting private key ~s", [KeyId]),
     case kz_datamgr:del_doc(?KZ_AUTH_DB, KeyId) of
         {'ok', _}=OK -> OK;

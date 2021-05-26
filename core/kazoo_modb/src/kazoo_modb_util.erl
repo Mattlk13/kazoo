@@ -1,6 +1,10 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2011-2019, 2600Hz
+%%% @copyright (C) 2011-2020, 2600Hz
 %%% @doc
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(kazoo_modb_util).
@@ -26,7 +30,7 @@ prev_year_month(AccountMod) ->
     prev_year_month(Year, Month).
 
 -spec prev_year_month(kz_term:ne_binary() | kz_time:year(), kz_term:ne_binary() | kz_time:month()) ->
-                             {kz_time:year(), kz_time:month()}.
+          {kz_time:year(), kz_time:month()}.
 prev_year_month(<<_/binary>> = Year, Month) ->
     prev_year_month(kz_term:to_integer(Year), Month);
 prev_year_month(Year, <<_/binary>> = Month) ->
@@ -54,17 +58,17 @@ prev_year_month_mod(?MATCH_MODB_SUFFIX_encoded(A, B, Rest, Year, Month)) ->
 
 -spec split_account_mod(kz_term:ne_binary()) -> {kz_term:ne_binary(), kz_time:year(), kz_time:month()}.
 split_account_mod(?MATCH_MODB_SUFFIX_RAW(Account,Year,Month)) ->
-    {kz_util:format_account_id(Account, 'raw')
+    {kzs_util:format_account_id(Account)
     ,kz_term:to_integer(Year)
     ,kz_term:to_integer(Month)
     };
 split_account_mod(?MATCH_MODB_SUFFIX_UNENCODED(Account,Year,Month)) ->
-    {kz_util:format_account_id(Account, 'raw')
+    {kzs_util:format_account_id(Account)
     ,kz_term:to_integer(Year)
     ,kz_term:to_integer(Month)
     };
 split_account_mod(?MATCH_MODB_SUFFIX_ENCODED(Account,Year,Month)) ->
-    {kz_util:format_account_id(Account, 'raw')
+    {kzs_util:format_account_id(Account)
     ,kz_term:to_integer(Year)
     ,kz_term:to_integer(Month)
     }.

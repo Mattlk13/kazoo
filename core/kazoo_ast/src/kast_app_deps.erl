@@ -1,7 +1,11 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2015-2019, 2600Hz
+%%% @copyright (C) 2015-2020, 2600Hz
 %%% @doc Module for studying Kazoo applications dependency.
 %%% @author James Aimonetti
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(kast_app_deps).
@@ -25,19 +29,20 @@
 
 -include_lib("kazoo_ast/include/kz_ast.hrl").
 -include_lib("kazoo_stdlib/include/kz_types.hrl").
+-include_lib("kazoo_stdlib/include/kz_log.hrl").
 
 -define(DEBUG(_Fmt, _Args), 'ok').
 %%-define(DEBUG(Fmt, Args), io:format([$~, $p, $  | Fmt], [?LINE | Args])).
 
 -spec dot_file() -> 'ok' |
-                    {'error', file:posix() | 'badarg' | 'terminated' | 'system_limit'}.
+          {'error', file:posix() | 'badarg' | 'terminated' | 'system_limit'}.
 dot_file() ->
     Markup = [create_dot_markup(App, remote_apps(App)) || App <- kz_ast_util:project_apps()],
     create_dot_file("kazoo_project", Markup).
 
 -spec dot_file(atom()) ->
-                      'ok' |
-                      {'error', file:posix() | 'badarg' | 'terminated' | 'system_limit'}.
+          'ok' |
+          {'error', file:posix() | 'badarg' | 'terminated' | 'system_limit'}.
 dot_file(App) ->
     AppDeps = remote_apps(App),
     create_dot_file(App, create_dot_markup(App, AppDeps)).
@@ -491,7 +496,7 @@ add_remote_module(M, Acc) ->
     end.
 
 -spec modules_with_apps(atom(), [atom()]) ->
-                               [{atom(), atom()}].
+          [{atom(), atom()}].
 modules_with_apps(App, Modules) ->
     lists:usort([{M, AppOf}
                  || M <- Modules,

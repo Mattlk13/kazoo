@@ -1,7 +1,12 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2012-2019, 2600Hz
+%%% @copyright (C) 2012-2020, 2600Hz
 %%% @doc
 %%% @author James Aimonetti
+%%%
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(acdc_util).
@@ -83,7 +88,10 @@ send_cdr(Url, JObj, Retries) ->
 -spec agents_in_queue(kz_term:ne_binary(), kz_term:ne_binary()) -> kz_json:path().
 agents_in_queue(AcctDb, QueueId) ->
     case kz_datamgr:get_results(AcctDb, <<"queues/agents_listing">>
-                               ,[{'key', QueueId}, {'reduce', 'false'}])
+                               ,[{'startkey', [QueueId]}
+                                ,{'endkey', [QueueId, kz_json:new()]}
+                                ,{'reduce', 'false'}
+                                ])
     of
         {'ok', []} -> [];
         {'error', _E} -> lager:debug("failed to lookup agents for ~s: ~p", [QueueId, _E]), [];
@@ -101,7 +109,7 @@ agent_devices(AcctDb, AgentId) ->
     end.
 
 -spec get_endpoints(kapps_call:call(), kz_term:ne_binary() | kazoo_data:get_results_return()) ->
-                           kz_json:objects().
+          kz_json:objects().
 get_endpoints(Call, ?NE_BINARY = AgentId) ->
     Params = kz_json:from_list([{<<"source">>, kz_term:to_binary(?MODULE)}]),
     kz_endpoints:by_owner_id(AgentId, Params, Call).

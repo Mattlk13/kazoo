@@ -66,7 +66,10 @@ consult_for_app_deps(KazooRoot, App) ->
     proplists:get_value('applications', Config, []).
 
 core_or_app(KazooRoot, AppL) ->
-    case filelib:is_dir(filename:join([KazooRoot, "core", AppL])) of
-        'true' -> "core";
-        'false' -> "applications"
-    end.
+    core_or_app(KazooRoot, AppL, filelib:wildcard(KazooRoot ++ "/{core,applications,deps}/" ++ AppL)).
+
+core_or_app(KazooRoot, AppL, []) ->
+    io:format('user', "failed to determine if ~s is core or dep in ~s~n", [AppL, KazooRoot]),
+    throw({'error', {'app_not_found', KazooRoot, AppL}});
+core_or_app(_KazooRoot, _AppL, [Path]) ->
+    filename:basename(filename:dirname(Path)).

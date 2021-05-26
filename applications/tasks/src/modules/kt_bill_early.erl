@@ -1,7 +1,12 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2013-2019, 2600Hz
+%%% @copyright (C) 2013-2020, 2600Hz
 %%% @doc
 %%% @author Hesaam
+%%%
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(kt_bill_early).
@@ -37,7 +42,7 @@ init() ->
 %%------------------------------------------------------------------------------
 -spec handle_req(kz_term:ne_binary()) -> 'ok'.
 handle_req(AccountDb) ->
-    AccountId = kz_util:format_account_id(AccountDb),
+    AccountId = kzs_util:format_account_id(AccountDb),
 
     EarlyDays = kapps_config:get_integer(?MOD_CAT, <<"how_many_early_days">>, 5),
     {DueTimestamp, IsDaysEarlyYet} = is_days_early_yet(EarlyDays),

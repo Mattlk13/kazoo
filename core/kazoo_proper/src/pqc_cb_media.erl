@@ -1,7 +1,12 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2010-2019, 2600Hz
+%%% @copyright (C) 2010-2020, 2600Hz
 %%% @doc
 %%% @author James Aimonetti
+%%%
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(pqc_cb_media).
@@ -19,6 +24,7 @@
 
 -export([seq/0
         ,cleanup/0
+        ,new_media_doc/0
         ]).
 
 -include("kazoo_proper.hrl").
@@ -272,6 +278,7 @@ expected_location_value(URL, Id) ->
     {'match', [_Host, Path]} = re:run(URL, "^(.+)(/v2/.+$)", [{'capture','all_but_first', 'list'}]),
     Path ++ [$/ | kz_term:to_list(Id)].
 
+-spec new_media_doc() -> kzd_media:doc().
 new_media_doc() ->
     Set = [{fun kzd_media:set_name/2, kz_binary:rand_hex(6)}],
     kz_doc:public_fields(kz_json:exec_first(Set, kzd_media:new())).

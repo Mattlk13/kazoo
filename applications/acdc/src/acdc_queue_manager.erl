@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2012-2019, 2600Hz
+%%% @copyright (C) 2012-2020, 2600Hz
 %%% @doc Manages queue processes:
 %%%   starting when a queue is created
 %%%   stopping when a queue is deleted
@@ -8,6 +8,11 @@
 %%%
 %%% @author Sponsored by GTNetwork LLC, Implemented by SIPLABS LLC
 %%% @author Daniel Finke
+%%%
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(acdc_queue_manager).
@@ -57,7 +62,7 @@
 -define(SERVER, ?MODULE).
 
 -define(BINDINGS(A, Q), [{'conf', [{'type', <<"queue">>}
-                                  ,{'db', kz_util:format_account_id(A, 'encoded')}
+                                  ,{'db', kzs_util:format_account_db(A)}
                                   ,{'id', Q}
                                   ,'federate'
                                   ]}
@@ -143,7 +148,7 @@ start_link(Super, AccountId, QueueId) ->
 -spec handle_member_call(kz_json:object(), kz_term:proplist()) -> 'ok'.
 handle_member_call(JObj, Props) ->
     'true' = kapi_acdc_queue:member_call_v(JObj),
-    _ = kz_util:put_callid(JObj),
+    _ = kz_log:put_callid(JObj),
 
     Call = kapps_call:from_json(kz_json:get_value(<<"Call">>, JObj)),
 
@@ -206,7 +211,7 @@ handle_member_call_success(JObj, Prop) ->
 
 -spec handle_member_call_cancel(kz_json:object(), kz_term:proplist()) -> 'ok'.
 handle_member_call_cancel(JObj, Props) ->
-    kz_util:put_callid(JObj),
+    kz_log:put_callid(JObj),
     lager:debug("cancel call ~p", [JObj]),
     'true' = kapi_acdc_queue:member_call_cancel_v(JObj),
     K = make_ignore_key(kz_json:get_value(<<"Account-ID">>, JObj)
@@ -281,8 +286,8 @@ next_winner(Srv) -> gen_listener:call(Srv, 'next_winner').
 agents_available(Srv) -> gen_listener:call(Srv, 'agents_available').
 
 -spec pick_winner(pid(), kz_json:objects()) ->
-                         'undefined' |
-                         {kz_json:objects(), kz_json:objects()}.
+          'undefined' |
+          {kz_json:objects(), kz_json:objects()}.
 pick_winner(Srv, Resps) -> pick_winner(Srv, Resps, strategy(Srv), next_winner(Srv)).
 
 %%%=============================================================================
@@ -298,22 +303,20 @@ init([Super, QueueJObj]) ->
     AccountId = kz_doc:account_id(QueueJObj),
     QueueId = kz_doc:id(QueueJObj),
 
-    kz_util:put_callid(<<"mgr_", QueueId/binary>>),
+    kz_log:put_callid(<<"mgr_", QueueId/binary>>),
 
     init(Super, AccountId, QueueId, QueueJObj);
 
 init([Super, AccountId, QueueId]) ->
-    kz_util:put_callid(<<"mgr_", QueueId/binary>>),
+    kz_log:put_callid(<<"mgr_", QueueId/binary>>),
 
-    AcctDb = kz_util:format_account_id(AccountId, 'encoded'),
+    AcctDb = kzs_util:format_account_db(AccountId),
     {'ok', QueueJObj} = kz_datamgr:open_cache_doc(AcctDb, QueueId),
 
     init(Super, AccountId, QueueId, QueueJObj).
 
 init(Super, AccountId, QueueId, QueueJObj) ->
-    process_flag('trap_exit', 'false'),
-
-    AccountDb = kz_util:format_account_id(AccountId, 'encoded'),
+    AccountDb = kzs_util:format_account_db(AccountId),
     _ = kz_datamgr:add_to_doc_cache(AccountDb, QueueId, QueueJObj),
 
     _ = start_secondary_queue(AccountId, QueueId),
@@ -435,9 +438,10 @@ handle_cast({'start_workers'}, #state{account_id=AccountId
                                      ,supervisor=QueueSup
                                      }=State) ->
     WorkersSup = acdc_queue_sup:workers_sup(QueueSup),
-    case kz_datamgr:get_results(kz_util:format_account_id(AccountId, 'encoded')
+    case kz_datamgr:get_results(kzs_util:format_account_db(AccountId)
                                ,<<"queues/agents_listing">>
-                               ,[{'key', QueueId}
+                               ,[{'startkey', [QueueId]}
+                                ,{'endkey', [QueueId, kz_json:new()]}
                                 ,{'group', 'true'}
                                 ,{'group_level', 1}
                                 ])
@@ -640,16 +644,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% @end
 %%------------------------------------------------------------------------------
 start_secondary_queue(AccountId, QueueId) ->
-    AccountDb = kz_util:format_account_db(AccountId),
+    AccountDb = kzs_util:format_account_db(AccountId),
     Priority = lookup_priority_levels(AccountDb, QueueId),
-    kz_util:spawn(fun gen_listener:add_queue/4
-                 ,[self()
-                  ,?SECONDARY_QUEUE_NAME(QueueId)
-                  ,[{'queue_options', ?SECONDARY_QUEUE_OPTIONS(Priority)}
-                   ,{'consume_options', ?SECONDARY_CONSUME_OPTIONS}
-                   ]
-                  ,?SECONDARY_BINDINGS(AccountId, QueueId)
-                  ]).
+    kz_process:spawn(fun gen_listener:add_queue/4
+                    ,[self()
+                     ,?SECONDARY_QUEUE_NAME(QueueId)
+                     ,[{'queue_options', ?SECONDARY_QUEUE_OPTIONS(Priority)}
+                      ,{'consume_options', ?SECONDARY_CONSUME_OPTIONS}
+                      ]
+                     ,?SECONDARY_BINDINGS(AccountId, QueueId)
+                     ]).
 
 -spec lookup_priority_levels(kz_term:ne_binary(), kz_term:ne_binary()) -> kz_term:api_integer().
 lookup_priority_levels(AccountDB, QueueId) ->
@@ -681,8 +685,8 @@ publish_queue_member_remove(AccountId, QueueId, CallId) ->
 
 %% Really sophisticated selection algorithm
 -spec pick_winner(pid(), kz_json:objects(), queue_strategy(), kz_term:api_binary()) ->
-                         'undefined' |
-                         {kz_json:objects(), kz_json:objects()}.
+          'undefined' |
+          {kz_json:objects(), kz_json:objects()}.
 pick_winner(_, [], _, _) ->
     lager:debug("no agent responses are left to choose from"),
     'undefined';
@@ -705,7 +709,7 @@ pick_winner(_Mgr, CRs, 'all', _AgentId) ->
     {CRs, []}.
 
 -spec update_strategy_with_agent(queue_strategy(), strategy_state(), kz_term:ne_binary(), 'add' | 'remove', 'busy' | 'undefined') ->
-                                        strategy_state().
+          strategy_state().
 update_strategy_with_agent('rr', #strategy_state{agents=AgentQueue}=SS, AgentId, 'add', Busy) ->
     case queue:member(AgentId, AgentQueue) of
         'true' -> set_busy(AgentId, Busy, SS);
@@ -805,12 +809,12 @@ remove_agent('all', AgentId, #strategy_state{agents=AgentQueue
     end.
 
 -spec incr_agent(kz_term:ne_binary(), dict:dict(kz_term:ne_binary(), ss_details())) ->
-                        dict:dict(kz_term:ne_binary(), ss_details()).
+          dict:dict(kz_term:ne_binary(), ss_details()).
 incr_agent(AgentId, Details) ->
     dict:update(AgentId, fun({Count, Busy}) -> {Count + 1, Busy} end, {1, 'undefined'}, Details).
 
 -spec decr_agent(kz_term:ne_binary(), dict:dict(kz_term:ne_binary(), ss_details())) ->
-                        dict:dict(kz_term:ne_binary(), ss_details()).
+          dict:dict(kz_term:ne_binary(), ss_details()).
 decr_agent(AgentId, Details) ->
     dict:update(AgentId, fun({Count, Busy}) when Count > 1 -> {Count - 1, Busy};
                             ({_, Busy}) -> {0, Busy} end
@@ -857,7 +861,7 @@ remove_unknown_agents(Mgr, CRs) ->
     end.
 
 -spec split_agents(kz_term:ne_binary(), kz_json:objects()) ->
-                          {kz_json:objects(), kz_json:objects()}.
+          {kz_json:objects(), kz_json:objects()}.
 split_agents(AgentId, Rest) ->
     lists:partition(fun(R) ->
                             AgentId =:= kz_json:get_value(<<"Agent-ID">>, R)
@@ -877,11 +881,9 @@ create_strategy_state(Strategy, AcctDb, QueueId) ->
 create_strategy_state('rr', #strategy_state{agents='undefined'}=SS, AcctDb, QueueId) ->
     create_strategy_state('rr', SS#strategy_state{agents=queue:new()}, AcctDb, QueueId);
 create_strategy_state('rr', #strategy_state{agents=AgentQ}=SS, AcctDb, QueueId) ->
-    case kz_datamgr:get_results(AcctDb, <<"queues/agents_listing">>
-                               ,[{'key', QueueId}, {'reduce', 'false'}])
-    of
-        {'ok', []} -> lager:debug("no agents around"), SS;
-        {'ok', JObjs} ->
+    case acdc_util:agents_in_queue(AcctDb, QueueId) of
+        [] -> lager:debug("no agents around"), SS;
+        JObjs ->
             Q = queue:from_list([Id || JObj <- JObjs,
                                        not queue:member((Id = kz_doc:id(JObj)), AgentQ)
                                 ]),
@@ -890,17 +892,14 @@ create_strategy_state('rr', #strategy_state{agents=AgentQ}=SS, AcctDb, QueueId) 
                                   end, dict:new(), JObjs),
             SS#strategy_state{agents=queue:join(AgentQ, Q)
                              ,details=Details
-                             };
-        {'error', _E} -> lager:debug("error creating strategy rr: ~p", [_E]), SS
+                             }
     end;
 create_strategy_state('mi', #strategy_state{agents='undefined'}=SS, AcctDb, QueueId) ->
     create_strategy_state('mi', SS#strategy_state{agents=[]}, AcctDb, QueueId);
 create_strategy_state('mi', #strategy_state{agents=AgentL}=SS, AcctDb, QueueId) ->
-    case kz_datamgr:get_results(AcctDb, <<"queues/agents_listing">>
-                               ,[{'key', QueueId}, {'reduce', 'false'}])
-    of
-        {'ok', []} -> lager:debug("no agents around"), SS;
-        {'ok', JObjs} ->
+    case acdc_util:agents_in_queue(AcctDb, QueueId) of
+        [] -> lager:debug("no agents around"), SS;
+        JObjs ->
             AgentL1 = lists:foldl(fun(JObj, Acc) ->
                                           Id = kz_doc:id(JObj),
                                           case lists:member(Id, Acc) of
@@ -913,17 +912,14 @@ create_strategy_state('mi', #strategy_state{agents=AgentL}=SS, AcctDb, QueueId) 
                                   end, dict:new(), JObjs),
             SS#strategy_state{agents=AgentL1
                              ,details=Details
-                             };
-        {'error', _E} -> lager:debug("error creating strategy mi: ~p", [_E]), SS
+                             }
     end;
 create_strategy_state('all', #strategy_state{agents='undefined'}=SS, AcctDb, QueueId) ->
     create_strategy_state('all', SS#strategy_state{agents=queue:new()}, AcctDb, QueueId);
 create_strategy_state('all', #strategy_state{agents=AgentQ}=SS, AcctDb, QueueId) ->
-    case kz_datamgr:get_results(AcctDb, <<"queues/agents_listing">>
-                               ,[{'key', QueueId}, {'reduce', 'false'}])
-    of
-        {'ok', []} -> lager:debug("no agents around"), SS;
-        {'ok', JObjs} ->
+    case acdc_util:agents_in_queue(AcctDb, QueueId) of
+        [] -> lager:debug("no agents around"), SS;
+        JObjs ->
             Q = queue:from_list([Id || JObj <- JObjs,
                                        not queue:member((Id = kz_doc:id(JObj)), AgentQ)
                                 ]),
@@ -932,8 +928,7 @@ create_strategy_state('all', #strategy_state{agents=AgentQ}=SS, AcctDb, QueueId)
                                   end, dict:new(), JObjs),
             SS#strategy_state{agents=queue:join(AgentQ, Q)
                              ,details=Details
-                             };
-        {'error', _E} -> lager:debug("error creating strategy all: ~p", [_E]), SS
+                             }
     end.
 
 update_strategy_state(Srv, 'rr', #strategy_state{agents=AgentQueue}) ->
@@ -998,7 +993,7 @@ announcements_config(Config) ->
       kz_json:get_json_value(<<"announcements">>, Config, kz_json:new())).
 
 -spec cancel_position_announcements(kapps_call:call() | 'false', map()) ->
-                                           map().
+          map().
 cancel_position_announcements('false', Pids) -> Pids;
 cancel_position_announcements(Call, Pids) ->
     CallId = kapps_call:call_id(Call),

@@ -1,9 +1,13 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2011-2019, 2600Hz
+%%% @copyright (C) 2011-2020, 2600Hz
 %%% @doc
 %%% @author Karl Anderson
 %%% @author James Aimonetti
 %%% @author Jon Blanton
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(crossbar_init).
@@ -34,8 +38,8 @@ api_version_constraint() ->
     {'version', fun api_version_constraint/2}.
 
 -spec api_version_constraint('forward', kz_term:ne_binary()) ->
-                                    {'ok', kz_term:ne_binary()} |
-                                    {'error', 'not_a_version'}.
+          {'ok', kz_term:ne_binary()} |
+          {'error', 'not_a_version'}.
 api_version_constraint('forward', <<"v", ApiVersion/binary>>=Vsn) ->
     try kz_term:to_integer(ApiVersion) of
         Int ->
@@ -58,7 +62,7 @@ api_version_constraint('forward', NotVersion) ->
 %%------------------------------------------------------------------------------
 -spec start_link() -> kz_types:startlink_ret().
 start_link() ->
-    kz_util:put_callid(?DEFAULT_LOG_SYSTEM_ID),
+    kz_log:put_callid(?DEFAULT_LOG_SYSTEM_ID),
     Dispatch = cowboy_router:compile(crossbar_routes()),
 
     DefaultIP = kz_network_utils:default_binding_ip(),
@@ -75,10 +79,9 @@ start_link() ->
 %%------------------------------------------------------------------------------
 -spec is_versioned_module(binary()) -> boolean().
 is_versioned_module(Module) ->
-    Mod = lists:reverse(binary_to_list(Module)),
-    case Mod of
-        "1v_" ++ _ -> 'true';
-        "2v_" ++ _ -> 'true';
+    case kz_binary:reverse(Module) of
+        <<"1v_", _/binary>> -> 'true';
+        <<"2v_", _/binary>> -> 'true';
         _ -> 'false'
     end.
 
@@ -182,10 +185,11 @@ maybe_start_plaintext(Dispatch, IP) ->
             try
                 lager:info("trying to bind to address ~s port ~b", [inet:ntoa(IP), Port]),
                 cowboy:start_clear('api_resource'
-                                  ,[{'ip', IP}
-                                   ,{'port', Port}
-                                   ,{'num_acceptors', Workers}
-                                   ]
+                                  ,#{'socket_opts' => [{'ip', IP}
+                                                      ,{'port', Port}
+                                                      ]
+                                    ,'num_acceptors' => Workers
+                                    }
                                   ,#{'env' => #{'dispatch' => Dispatch
                                                }
                                     ,'stream_handlers' => maybe_add_compression_handler()
@@ -228,10 +232,9 @@ start_ssl(Dispatch, IP) ->
                            ]
                           ),
                 cowboy:start_tls('api_resource_ssl'
-                                ,[{'ip', IP}
-                                 ,{'num_acceptors', Workers}
-                                  | SSLOpts
-                                 ]
+                                ,#{'socket_opts' => [{'ip', IP} | SSLOpts]
+                                  ,'num_acceptors' => Workers
+                                  }
                                 ,#{'env' => #{'dispatch' => Dispatch
                                              }
                                   ,'stream_handlers' => maybe_add_compression_handler()

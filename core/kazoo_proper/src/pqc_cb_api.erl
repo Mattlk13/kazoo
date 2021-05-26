@@ -1,7 +1,12 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2010-2019, 2600Hz
+%%% @copyright (C) 2010-2020, 2600Hz
 %%% @doc
 %%% @author James Aimonetti
+%%%
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(pqc_cb_api).
@@ -80,7 +85,7 @@ authenticate() ->
     Resp = make_request([#expectation{response_codes = [201]}]
                        ,fun kz_http:put/3
                        ,URL
-                       ,default_request_headers(kz_util:get_callid())
+                       ,default_request_headers(kz_log:get_callid())
                        ,kz_json:encode(Envelope)
                        ),
     create_api_state(Resp, Trace).
@@ -99,7 +104,7 @@ authenticate(AccountName, Username, Password) ->
     Resp = make_request([#expectation{response_codes = [201]}]
                        ,fun kz_http:put/3
                        ,URL
-                       ,default_request_headers(kz_util:get_callid())
+                       ,default_request_headers(kz_log:get_callid())
                        ,kz_json:encode(Envelope)
                        ),
     create_api_state(Resp, Trace).
@@ -138,7 +143,7 @@ create_api_state(<<_/binary>> = RespJSON, Trace) ->
     RespEnvelope = kz_json:decode(RespJSON),
     #{'auth_token' => kz_json:get_ne_binary_value(<<"auth_token">>, RespEnvelope)
      ,'account_id' => kz_json:get_ne_binary_value([<<"data">>, <<"account_id">>], RespEnvelope)
-     ,'request_id' => kz_util:get_callid()
+     ,'request_id' => kz_log:get_callid()
      ,'trace_file' => Trace
      ,'start' => get('start_time')
      }.
@@ -165,7 +170,8 @@ request_headers(#{'auth_token' := AuthToken
                ],
     [{kz_term:to_list(K), V}
      || {K, V} <- props:unique([{kz_term:to_binary(K), V} || {K, V} <- RequestHeaders ++ Defaults])
-    ].
+    ];
+request_headers(_, RequestHeaders) -> RequestHeaders.
 
 %% Need binary keys to avoid props assuming "foo" is [102, 111, 111] as a nested key
 -spec default_request_headers() -> request_headers().
@@ -183,14 +189,14 @@ default_request_headers(RequestId) ->
      | default_request_headers()
     ].
 
--spec make_request(expectations(), fun_2(), string(), request_headers()) ->
-                          response().
+-spec make_request(expectations(), fun_2(), iolist(), request_headers()) ->
+          response().
 make_request(Expectations, HTTP, URL, RequestHeaders) ->
-    ?INFO("~p(~s, ~p)", [HTTP, URL, RequestHeaders]),
+    ?INFO("~p(~s, ~s)", [HTTP, URL, RequestHeaders]),
     handle_response(Expectations, HTTP(URL, RequestHeaders)).
 
--spec make_request(expectations(), fun_3(), string(), request_headers(), iodata()) ->
-                          response().
+-spec make_request(expectations(), fun_3(), iolist(), request_headers(), iodata()) ->
+          response().
 make_request(Expectations, HTTP, URL, RequestHeaders, RequestBody) ->
     ?INFO("~p: ~s", [HTTP, URL]),
     ?DEBUG("headers: ~p", [RequestHeaders]),
@@ -202,7 +208,7 @@ create_envelope(Data) ->
     create_envelope(Data, kz_json:new()).
 
 -spec create_envelope(kz_json:json_term(), kz_json:object()) ->
-                             kz_json:object().
+          kz_json:object().
 create_envelope(Data, Envelope) ->
     kz_json:set_value(<<"data">>, Data, Envelope).
 
@@ -273,10 +279,10 @@ response_header_matches({ExpectedHeader, ExpectedValue}, RespHeaders) ->
 
 -spec start_trace() -> {'ok', kz_data_tracing:trace_ref()}.
 start_trace() ->
-    RequestId = case kz_util:get_callid() of
+    RequestId = case kz_log:get_callid() of
                     'undefined' ->
                         RID = kz_binary:rand_hex(5),
-                        kz_util:put_callid(RID),
+                        kz_log:put_callid(RID),
                         RID;
                     RID -> RID
                 end,
@@ -329,7 +335,7 @@ initial_state(AppsToStart, ModulesToStart) ->
 -spec init_system([atom()], [module()]) -> 'ok'.
 init_system(AppsToStart, ModulesToStart) ->
     TestId = kz_binary:rand_hex(5),
-    kz_util:put_callid(TestId),
+    kz_log:put_callid(TestId),
 
     _ = kz_data_tracing:clear_all_traces(),
     _ = [kapps_controller:start_app(App) ||

@@ -1,13 +1,18 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2012-2019, 2600Hz
+%%% @copyright (C) 2012-2020, 2600Hz
 %%% @doc Upload a rate deck, query rates for a given DID
 %%% @author James Aimonetti
+%%%
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(cb_rates).
 
 -export([init/0
-        ,authorize/1
+        ,authorize/1, authorize/2, authorize/3
         ,allowed_methods/0, allowed_methods/1 ,allowed_methods/2
         ,resource_exists/0, resource_exists/1 ,resource_exists/2
         ,content_types_provided/1
@@ -51,7 +56,7 @@
 -spec init() -> 'ok'.
 init() ->
     _ = init_db(),
-    _ = crossbar_bindings:bind(<<"*.authorize">>, ?MODULE, 'authorize'),
+    _ = crossbar_bindings:bind(<<"*.authorize.rates">>, ?MODULE, 'authorize'),
     _ = crossbar_bindings:bind(<<"*.allowed_methods.rates">>, ?MODULE, 'allowed_methods'),
     _ = crossbar_bindings:bind(<<"*.resource_exists.rates">>, ?MODULE, 'resource_exists'),
     _ = crossbar_bindings:bind(<<"*.validate.rates">>, ?MODULE, 'validate'),
@@ -69,17 +74,25 @@ init_db() ->
 
 -spec authorize(cb_context:context()) -> boolean().
 authorize(Context) ->
-    authorize(Context, cb_context:req_nouns(Context)).
+    authorize_nouns(Context, cb_context:req_nouns(Context)).
 
-authorize(Context, [{<<"rates">>, [?RATEDECKS]}]) ->
+-spec authorize(cb_context:context(), path_token()) -> boolean().
+authorize(Context, _) ->
+    authorize_nouns(Context, cb_context:req_nouns(Context)).
+
+-spec authorize(cb_context:context(), path_token(), path_token()) -> boolean().
+authorize(Context, _, _) ->
+    authorize_nouns(Context, cb_context:req_nouns(Context)).
+
+authorize_nouns(Context, [{<<"rates">>, [?RATEDECKS]}]) ->
     case cb_context:is_superduper_admin(Context) of
         'true' -> 'true';
         'false' -> {'stop', cb_context:add_system_error('forbidden', Context)}
     end;
-authorize(_Context, [{<<"rates">>, [?NUMBER, _NumberToRate]}]) ->
+authorize_nouns(_Context, [{<<"rates">>, [?NUMBER, _NumberToRate]}]) ->
     lager:debug("authorizing rate request for ~s", [_NumberToRate]),
     'true';
-authorize(_Context, _Nouns) ->
+authorize_nouns(_Context, _Nouns) ->
     'false'.
 
 %%------------------------------------------------------------------------------
@@ -154,19 +167,19 @@ validate(Context, ?NUMBER, Phonenumber) ->
 
 -spec validate_rates(cb_context:context(), http_method()) -> cb_context:context().
 validate_rates(Context, ?HTTP_GET) ->
-    summary(cb_context:set_account_db(Context, ratedeck_db(Context)), cb_context:req_value(Context, <<"prefix">>));
+    summary(cb_context:set_db_name(Context, ratedeck_db(Context)), cb_context:req_value(Context, <<"prefix">>));
 validate_rates(Context, ?HTTP_PUT) ->
-    create(cb_context:set_account_db(Context, ratedeck_db(Context))).
+    create(cb_context:set_db_name(Context, ratedeck_db(Context))).
 
 -spec validate_rate(cb_context:context(), path_token(), http_method()) -> cb_context:context().
 validate_rate(Context, Id, ?HTTP_GET) ->
-    read(Id, cb_context:set_account_db(Context, ratedeck_db(Context)));
+    read(Id, cb_context:set_db_name(Context, ratedeck_db(Context)));
 validate_rate(Context, Id, ?HTTP_POST) ->
-    update(Id, cb_context:set_account_db(Context, ratedeck_db(Context)));
+    update(Id, cb_context:set_db_name(Context, ratedeck_db(Context)));
 validate_rate(Context, Id, ?HTTP_PATCH) ->
-    validate_patch(Id, cb_context:set_account_db(Context, ratedeck_db(Context)));
+    validate_patch(Id, cb_context:set_db_name(Context, ratedeck_db(Context)));
 validate_rate(Context, Id, ?HTTP_DELETE) ->
-    read(Id, cb_context:set_account_db(Context, ratedeck_db(Context))).
+    read(Id, cb_context:set_db_name(Context, ratedeck_db(Context))).
 
 -spec ratedeck_db(cb_context:context()) -> kz_term:ne_binary().
 ratedeck_db(Context) ->
@@ -277,29 +290,17 @@ ensure_routes_set(Rate, _Routes) ->
 %%------------------------------------------------------------------------------
 -spec summary(cb_context:context(), kz_term:api_binary()) -> cb_context:context().
 summary(Context, 'undefined') ->
-    crossbar_doc:load_view(?CB_LIST, [], Context, fun normalize_view_results/2);
+    Options = [{'databases', [cb_context:db_name(Context)]}
+              ,{'mapper', crossbar_view:get_value_fun()}
+              ],
+    crossbar_view:load(Context, ?CB_LIST, Options);
 summary(Context, Prefix) ->
-    crossbar_doc:load_view(<<"rates/lookup">>
-                          ,[{'keys', kzdb_ratedeck:prefix_keys(Prefix)},'include_docs']
-                          ,Context
-                          ,fun normalize_rate_lookup/2
-                          ).
-
-%%------------------------------------------------------------------------------
-%% @doc Normalizes the results of a view.
-%% @end
-%%------------------------------------------------------------------------------
--spec normalize_view_results(kz_json:object(), kz_json:objects()) -> kz_json:objects().
-normalize_view_results(JObj, Acc) ->
-    [kz_json:get_value(<<"value">>, JObj)|Acc].
-
-%%------------------------------------------------------------------------------
-%% @doc Normalizes the results of a view.
-%% @end
-%%------------------------------------------------------------------------------
--spec normalize_rate_lookup(kz_json:object(), kz_json:objects()) -> kz_json:objects().
-normalize_rate_lookup(JObj, Acc) ->
-    [kz_json:get_value(<<"doc">>, JObj)|Acc].
+    Options = [{'databases', [cb_context:db_name(Context)]}
+              ,{'keys', kzdb_ratedeck:prefix_keys(Prefix)}
+              ,{'mapper', crossbar_view:get_doc_fun()}
+              ,'include_docs'
+              ],
+    crossbar_view:load(Context, <<"rates/lookup">>, Options).
 
 -spec rate_for_number(kz_term:ne_binary(), cb_context:context()) -> cb_context:context().
 rate_for_number(Phonenumber, Context) ->
@@ -330,7 +331,7 @@ rate_for_number(Phonenumber, Context) ->
     end.
 
 -spec maybe_handle_rate(kz_term:ne_binary(), cb_context:context(), kz_json:object()) ->
-                               cb_context:context().
+          cb_context:context().
 maybe_handle_rate(Phonenumber, Context, Rate) ->
     case kz_json:get_value(<<"Base-Cost">>, Rate) of
         'undefined' ->
@@ -359,7 +360,7 @@ normalize_fields(Rate) ->
     kz_json:map(fun normalize_field/2, Rate).
 
 -spec normalize_field(kz_json:path(), kz_json:json_term()) ->
-                             {kz_json:path(), kz_json:json_term()}.
+          {kz_json:path(), kz_json:json_term()}.
 normalize_field(<<"Base-Cost">> = K, BaseCost) ->
     {K, kz_currency:units_to_dollars(BaseCost)};
 normalize_field(K, V) ->

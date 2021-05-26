@@ -1,6 +1,10 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2014-2019, 2600Hz
+%%% @copyright (C) 2014-2020, 2600Hz
 %%% @doc
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(teletype_renderer).
@@ -30,15 +34,15 @@ start_link(Args) ->
     gen_server:start_link(?SERVER, [], [Args]).
 
 -spec render(kz_term:ne_binary(), binary(), kz_term:proplist()) ->
-                    {'ok', iolist()} |
-                    {'error', any()}.
+          {'ok', iolist()} |
+          {'error', any()}.
 render(TemplateId, Template, TemplateData) ->
     Renderer = next_renderer(),
     render(Renderer, TemplateId, Template, TemplateData, 3).
 
 -spec render(pid(), kz_term:ne_binary(), binary(), kz_term:proplist(), integer()) ->
-                    {'ok', iolist()} |
-                    {'error', any()}.
+          {'ok', iolist()} |
+          {'error', any()}.
 
 render(Renderer, TemplateId, _Template, _TemplateData, 0) ->
     ?LOG_ERROR("rendering of ~p failed after several tries", [TemplateId]),
@@ -61,8 +65,8 @@ render(Renderer, TemplateId, Template, TemplateData, Tries) ->
     end.
 
 -spec do_render(pid(), kz_term:ne_binary(), binary(), kz_term:proplist()) ->
-                       {'ok', iolist()} |
-                       {'error', any()}.
+          {'ok', iolist()} |
+          {'error', any()}.
 do_render(Renderer, TemplateId, Template, TemplateData) ->
     try gen_server:call(Renderer
                        ,{'render', TemplateId, Template, TemplateData}
@@ -112,7 +116,7 @@ init(_) ->
     Self = kz_term:to_hex_binary(list_to_binary(pid_to_list(self()))),
     ModuleBin = <<"teletype_", Self/binary, "_", (kz_binary:rand_hex(4))/binary>>,
     Module = kz_term:to_atom(ModuleBin, 'true'),
-    kz_util:put_callid(Module),
+    kz_log:put_callid(Module),
     %% ?LOG_DEBUG("starting template renderer, using ~s as compiled module name", [Module]),
     lager:debug("starting template renderer, using ~s as compiled module name", [Module]),
     {'ok', Module}.

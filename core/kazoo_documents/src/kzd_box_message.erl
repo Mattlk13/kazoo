@@ -1,12 +1,16 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2010-2019, 2600Hz
+%%% @copyright (C) 2010-2020, 2600Hz
 %%% @doc Mailbox message document manipulation
 %%% @author Hesaam Farhang
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(kzd_box_message).
 
--export([new/2, build_metadata_object/6
+-export([new/2, build_metadata_object/6, build_metadata_object/7
         ,count_folder/2
         ,create_message_name/3
         ,type/0
@@ -21,6 +25,7 @@
 
         ,change_message_name/2, change_to_sip_field/3
 
+        ,length/1
         ,media_id/1, set_media_id/2, update_media_id/2
         ,metadata/1, metadata/2, set_metadata/2
         ,source_id/1, set_source_id/2
@@ -159,9 +164,10 @@ create_message_name(BoxNum, <<Timezone/binary>>, UtcSeconds) ->
 -spec message_name(kz_term:ne_binary(), kz_time:datetime(), string()) -> kz_term:ne_binary().
 message_name(BoxNum, {{Y,M,D},{H,I,S}}, TZ) ->
     list_to_binary(["mailbox ", BoxNum, " message "
-                   ,kz_term:to_binary(M), "-"
-                   ,kz_term:to_binary(D), "-"
-                   ,kz_term:to_binary(Y), " "
+                   ,kz_term:to_binary(Y), "-"
+                   ,kz_date:pad_month(M), "-"
+                   ,kz_date:pad_day(D), " "
+
                    ,kz_term:to_binary(H), ":"
                    ,kz_term:to_binary(I), ":"
                    ,kz_term:to_binary(S), TZ
@@ -172,8 +178,13 @@ message_name(BoxNum, {{Y,M,D},{H,I,S}}, TZ) ->
 %% @end
 %%------------------------------------------------------------------------------
 -spec build_metadata_object(pos_integer(), kapps_call:call(), kz_term:ne_binary(), kz_term:ne_binary(), kz_term:ne_binary(), kz_time:gregorian_seconds()) ->
-                                   doc().
+          doc().
 build_metadata_object(Length, Call, MediaId, CIDNumber, CIDName, Timestamp) ->
+    build_metadata_object(Length, Call, MediaId, CIDNumber, CIDName, Timestamp, ?VM_FOLDER_NEW).
+
+-spec build_metadata_object(pos_integer(), kapps_call:call(), kz_term:ne_binary(), kz_term:ne_binary(), kz_term:ne_binary(), kz_time:gregorian_seconds(), kz_term:ne_binary()) ->
+          doc().
+build_metadata_object(Length, Call, MediaId, CIDNumber, CIDName, Timestamp, Folder) ->
     kz_json:from_list(
       [{?KEY_MEDIA_ID, MediaId}
       ,{?KEY_META_CALL_ID, kapps_call:call_id(Call)}
@@ -192,7 +203,7 @@ build_metadata_object(Length, Call, MediaId, CIDNumber, CIDName, Timestamp) ->
       ,{?KEY_META_TO_USER, kapps_call:to_user(Call)}
       ,{?KEY_META_TO_REALM, kapps_call:to_realm(Call)}
 
-      ,{?VM_KEY_FOLDER, ?VM_FOLDER_NEW}
+      ,{?VM_KEY_FOLDER, Folder}
       ]).
 
 -spec get_msg_id(kz_json:object()) -> kz_term:api_ne_binary().
@@ -262,6 +273,10 @@ message_history(JObj) ->
 -spec add_message_history(kz_term:ne_binary(), doc()) -> doc().
 add_message_history(History, JObj) ->
     kz_json:set_value(?KEY_HISTORY, message_history(JObj) ++ [History], JObj).
+
+-spec length(doc()) -> integer().
+length(JObj) ->
+    kz_json:get_value(?KEY_META_LENGTH, JObj).
 
 -spec message_name(doc()) -> kz_term:api_binary().
 message_name(JObj) ->

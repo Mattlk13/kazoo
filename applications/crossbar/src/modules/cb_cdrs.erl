@@ -1,5 +1,5 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2011-2019, 2600Hz
+%%% @copyright (C) 2011-2020, 2600Hz
 %%% @doc CDR
 %%% Read only access to CDR docs
 %%%
@@ -9,6 +9,11 @@
 %%% @author Karl Anderson
 %%% @author Ben Wann
 %%% @author Sponsored by GTNetwork LLC, Implemented by SIPLABS LLC
+%%%
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(cb_cdrs).
@@ -79,7 +84,7 @@ to_csv({Req, Context}) ->
     {Req, to_response(Context, <<"csv">>, cb_context:req_nouns(Context))}.
 
 -spec to_response(cb_context:context(), kz_term:ne_binary(), req_nouns()) ->
-                         cb_context:context().
+          cb_context:context().
 to_response(Context, _, [{<<"cdrs">>, []}, {?KZ_ACCOUNTS_DB, _}|_]) ->
     Context;
 to_response(Context, _, [{<<"cdrs">>, []}, {<<"users">>, _}|_]) ->
@@ -404,28 +409,37 @@ normalize_cdr(Context, <<"json">>, Result) ->
     Duration = kzd_cdrs:duration_seconds(JObj, 0),
     Timestamp = kzd_cdrs:timestamp(JObj, 0) - Duration,
 
-    RowMappers = props:replace_value(<<"datetime">>, fun col_pretty_print/3, csv_rows(Context)),
-
-    kz_json:from_list([{K, apply_row_mapper(F, JObj, Timestamp, Context)} || {K, F} <- RowMappers]);
+    MappedRows = [{K, apply_row_mapper(K, F, JObj, Timestamp, Context)} || {K, F} <- csv_rows(Context)],
+    maybe_filter_empties(MappedRows, kapps_config:is_true(?MOD_CONFIG_CAT, <<"should_filter_empty_strings">>, 'false'));
 normalize_cdr(Context, <<"csv">>, Result) ->
     JObj = kz_json:get_json_value(<<"doc">>, Result),
     Duration = kzd_cdrs:duration_seconds(JObj, 0),
     Timestamp = kzd_cdrs:timestamp(JObj, 0) - Duration,
 
-    RowMappers = props:replace_value(<<"datetime">>, fun col_pretty_print/3, csv_rows(Context)),
-
-    <<(kz_binary:join([apply_row_mapper(F, JObj, Timestamp, Context)
-                       || {_, F} <- RowMappers
+    <<(kz_binary:join([apply_row_mapper(K, F, JObj, Timestamp, Context)
+                       || {K, F} <- csv_rows(Context)
                       ]
                      ,<<",">>
                      ))/binary
      ,"\r\n"
     >>.
 
-apply_row_mapper(F, JObj, Timestamp, Context) when is_function(F, 3) ->
-    F(JObj, Timestamp, Context);
-apply_row_mapper(F, JObj, Timestamp, _Context) when is_function(F, 2) ->
-    F(JObj, Timestamp).
+-spec apply_row_mapper(kz_term:ne_binary(), fun(), kz_json:object(), kz_time:gregorian_seconds(), cb_context:context()) -> binary().
+apply_row_mapper(<<"datetime">>, _F, JObj, Timestamp, Context) ->
+    col_pretty_print(JObj, Timestamp, Context);
+apply_row_mapper(_, F, JObj, Timestamp, _Context) ->
+    F(JObj, Timestamp, 'undefined').
+
+-spec col_pretty_print(kz_json:object(), kz_time:gregorian_seconds(), cb_context:context()) -> kz_term:ne_binary().
+col_pretty_print(_JObj, Timestamp, Context) ->
+    UTCSecondsOffset = cb_context:req_value(Context, ?KEY_UTC_OFFSET),
+    kz_time:pretty_print_datetime(handle_utc_time_offset(Timestamp, UTCSecondsOffset)).
+
+-spec maybe_filter_empties(kz_term:proplist(), boolean()) -> kz_json:objects().
+maybe_filter_empties(Rows, 'true') ->
+    kz_json:from_list(props:filter_empty_strings(Rows));
+maybe_filter_empties(Rows, 'false') ->
+    kz_json:from_list(Rows).
 
 -spec maybe_add_csv_header(cb_context:context(), kz_term:ne_binary(), kz_json:objects() | kz_term:binaries()) -> cb_context:context().
 maybe_add_csv_header(Context, _, []) ->
@@ -459,7 +473,7 @@ handle_utc_time_offset(Timestamp, UTCSecondsOffset) ->
 load_cdr(?MATCH_MODB_PREFIX(Year, Month, _Day) = CDRId, Context) ->
     AccountId = cb_context:account_id(Context),
     AccountDb = kazoo_modb:get_modb(AccountId, kz_term:to_integer(Year), kz_term:to_integer(Month)),
-    Context1 = cb_context:set_account_db(Context, AccountDb),
+    Context1 = cb_context:set_db_name(Context, AccountDb),
     crossbar_doc:load({kzd_cdrs:type(), CDRId}, Context1, ?TYPE_CHECK_OPTION(kzd_cdrs:type()));
 load_cdr(CDRId, Context) ->
     lager:debug("error loading cdr by id ~p", [CDRId]),
@@ -498,11 +512,6 @@ load_legs(Id, Context) ->
     crossbar_util:response_bad_identifier(Id, Context).
 
 -spec normalize_leg_view_results(kz_json:object(), kz_json:objects()) ->
-                                        kz_json:objects().
+          kz_json:objects().
 normalize_leg_view_results(JObj, Acc) ->
     Acc ++ [kz_json:get_json_value(<<"doc">>, JObj)].
-
--spec col_pretty_print(kz_json:object(), kz_time:gregorian_seconds(), cb_context:context()) -> kz_term:ne_binary().
-col_pretty_print(_JObj, Timestamp, Context) ->
-    UTCSecondsOffset = cb_context:req_value(Context, ?KEY_UTC_OFFSET),
-    kz_time:pretty_print_datetime(handle_utc_time_offset(Timestamp, UTCSecondsOffset)).

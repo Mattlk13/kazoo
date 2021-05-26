@@ -1,7 +1,12 @@
 %%%-----------------------------------------------------------------------------
-%%% @copyright (C) 2016-2019, 2600Hz
+%%% @copyright (C) 2016-2020, 2600Hz
 %%% @doc
 %%% @author Pierre Fenoll
+%%%
+%%% This Source Code Form is subject to the terms of the Mozilla Public
+%%% License, v. 2.0. If a copy of the MPL was not distributed with this
+%%% file, You can obtain one at https://mozilla.org/MPL/2.0/.
+%%%
 %%% @end
 %%%-----------------------------------------------------------------------------
 -module(kt_cdrs).
@@ -75,7 +80,7 @@ output_header(<<"dump">>) ->
 
 -spec dump(kz_tasks:extra_args(), kz_tasks:iterator()) -> kz_tasks:iterator().
 dump(#{'account_id' := AccountId}=_ExtraArgs, 'init') ->
-    AccountDb = kz_util:format_account_mod_id(AccountId),
+    AccountDb = kzs_util:format_account_mod_id(AccountId),
     lager:info("starting dump of ~s", [AccountDb]),
 
     process_rows(AccountDb, 'undefined');
@@ -85,7 +90,7 @@ dump(#{}=_ExtraArgs, {AccountDb, NextStartKey}) ->
     process_rows(AccountDb, NextStartKey).
 
 -spec process_rows(kz_term:ne_binary(), 'undefined' | {kz_term:ne_binary(), kz_json:api_json_term()}) ->
-                          {[iolist()] | kz_datamgr:data_error(), {kz_term:ne_binary(), kz_json:api_json_term()}}.
+          {[iolist()] | kz_datamgr:data_error(), {kz_term:ne_binary(), kz_json:api_json_term()}}.
 process_rows(AccountDb, 'undefined') ->
     case get_page(AccountDb, 'undefined') of
         {'ok', Rows, NextStartKey} ->
